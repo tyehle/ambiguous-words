@@ -55,17 +55,12 @@ object Replacer {
    * @return The transformed input string
    */
   def processInput(input: String, groups: Seq[Set[String]], delimiters:Set[Char]=" \t\n\r.,?!;:\"()-".toSet): String = {
-    /** Used to keep track of what a particular sequence of the input represents. */
-    abstract class Token { def chars: String }
-    /** Represents a sequence of letters that is a word. */
-    case class Word(chars: String) extends Token
-    /** Represents a sequence of letters that is not a word. */
-    case class Separator(chars: String) extends Token
-
     // Tokenize the input
-    val tokens = mutable.Buffer.empty[Token]
+    val tokens = mutable.Buffer.empty[Either[String, String]]
     val wordBuffer = mutable.Buffer.empty[Char]
     var inWord = false
+    // A simple state machine eats all the characters in the input, adding them to the buffer
+    // could be a recursive function, but ... ehh
     for(char <- input) {
       if(wordBuffer.isEmpty) {
         wordBuffer += char
@@ -75,32 +70,39 @@ object Replacer {
         wordBuffer += char
       }
       else {
-        tokens += (if(inWord) Word(wordBuffer.mkString) else Separator(wordBuffer.mkString))
+        tokens += (if(inWord) Left(wordBuffer.mkString) else Right(wordBuffer.mkString))
         wordBuffer.clear()
         wordBuffer += char
         inWord = !delimiters.contains(char)
       }
     }
-    tokens += (if(inWord) Word(wordBuffer.mkString) else Separator(wordBuffer.mkString))
+    tokens += (if(inWord) Left(wordBuffer.mkString) else Right(wordBuffer.mkString))
 
-    var wordsTransformed = 0
-    /** Deal with a single word */
-    def processWord(word: Word): Word = {
-      val uppers = word.chars.map(_.isUpper)
+    var wordsTransformed = 0 // This is some impure dirtiness. Deal with it.
+    // Deal with a single word
+    def processWord(word: String): String = {
+      // Keep track of what characters were upper case, so we can put them back
+      // This is not perfect, but anything better is WAY harder
+      val uppers = word.map(_.isUpper)
 
-      groups.find(_.contains(word.chars.toLowerCase)) match {
+      groups.find(_.contains(word.toLowerCase)) match {
         case Some(replacements) =>
           wordsTransformed += 1
           val newWord = replacements.toSeq(Random.nextInt(replacements.size))
           println(s"replaced ${word.chars} with $newWord")
-          Word(newWord.zip(uppers).map{case (letter, shouldUpper) => if(shouldUpper) letter.toUpper else letter}.mkString)
+          newWord.zip(uppers).map{case (letter, shouldUpper) => if(shouldUpper) letter.toUpper else letter}.mkString
         case None => word
       }
     }
 
     // Transform the input
-    val result = tokens.map{case word:Word => processWord(word).chars; case Separator(chars) => chars}.mkString
+    val result = tokens.map {
+      case Left(word) => processWord(word).chars
+      case Right(chars) => chars
+    }.mkString
+
     println(s"$wordsTransformed replacements done")
+
     result
   }
 }
